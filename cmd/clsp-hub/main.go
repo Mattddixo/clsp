@@ -11,9 +11,13 @@ import (
 	"syscall"
 
 	"github.com/mattd/clsp/internal/hub"
+	"github.com/mattd/clsp/internal/paths"
 )
 
 func doInit(dbPath string) {
+	if dbPath == "" {
+		dbPath = paths.HubDBPath
+	}
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		log.Fatalf("Failed to create directory %s: %v", dir, err)
