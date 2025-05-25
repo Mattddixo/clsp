@@ -21,7 +21,31 @@ CLSP is a secure, command-line messaging tool that provides end-to-end encrypted
 - Go 1.21 or later
 - SQLite3 (for the hub server)
 
-### Building from Source
+### Global Installation (Recommended)
+
+To install CLSP globally and make the commands available from anywhere:
+
+```bash
+# Clone the repository
+git clone https://github.com/mattd/clsp.git
+cd clsp
+
+# Run the installer
+go run install.go
+```
+
+This will:
+- Build both `clsp` and `clsp-hub` binaries
+- Install them to a system-wide location:
+  - Windows: `%LOCALAPPDATA%\Programs\clsp`
+  - Unix-like systems: `/usr/local/bin`
+- Make the commands available globally
+
+Note: On Windows, you may need to restart your terminal for the PATH changes to take effect.
+
+### Manual Installation
+
+If you prefer to install manually:
 
 ```bash
 # Clone the repository
@@ -33,6 +57,11 @@ go build -o clsp-hub ./cmd/clsp-hub
 
 # Build the client
 go build -o clsp ./cmd/clsp
+
+# Move binaries to a directory in your PATH (optional)
+# For example, on Unix-like systems:
+sudo mv clsp clsp-hub /usr/local/bin/
+# Or on Windows, copy to a directory in your PATH
 ```
 
 ## Quick Start
