@@ -78,9 +78,18 @@ func main() {
 
 	fmt.Println("Building CLSP binaries...")
 
+	// Helper function to get binary name with extension
+	getBinaryName := func(name string) string {
+		if runtime.GOOS == "windows" {
+			return name + ".exe"
+		}
+		return name
+	}
+
 	// Build clsp
 	if *installClsp || installBoth {
-		cmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "clsp"), "./cmd/clsp")
+		outputPath := filepath.Join(tempDir, getBinaryName("clsp"))
+		cmd := exec.Command("go", "build", "-o", outputPath, "./cmd/clsp")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -91,7 +100,8 @@ func main() {
 
 	// Build clsp-hub
 	if *installHub || installBoth {
-		cmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "clsp-hub"), "./cmd/clsp-hub")
+		outputPath := filepath.Join(tempDir, getBinaryName("clsp-hub"))
+		cmd := exec.Command("go", "build", "-o", outputPath, "./cmd/clsp-hub")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -100,13 +110,9 @@ func main() {
 		}
 	}
 
-	// Determine binary names (append .exe on Windows)
-	clspPath := filepath.Join(installDir, "clsp")
-	clspHubPath := filepath.Join(installDir, "clsp-hub")
-	if runtime.GOOS == "windows" {
-		clspPath += ".exe"
-		clspHubPath += ".exe"
-	}
+	// Determine binary names for final installation
+	clspPath := filepath.Join(installDir, getBinaryName("clsp"))
+	clspHubPath := filepath.Join(installDir, getBinaryName("clsp-hub"))
 
 	// Remove old binaries if they exist
 	if *installClsp || installBoth {
@@ -118,20 +124,14 @@ func main() {
 
 	// Copy the built binaries to the install directory
 	if *installClsp || installBoth {
-		srcPath := filepath.Join(tempDir, "clsp")
-		if runtime.GOOS == "windows" {
-			srcPath += ".exe"
-		}
+		srcPath := filepath.Join(tempDir, getBinaryName("clsp"))
 		if err := copyFile(srcPath, clspPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to install clsp: %v\n", err)
 			os.Exit(1)
 		}
 	}
 	if *installHub || installBoth {
-		srcPath := filepath.Join(tempDir, "clsp-hub")
-		if runtime.GOOS == "windows" {
-			srcPath += ".exe"
-		}
+		srcPath := filepath.Join(tempDir, getBinaryName("clsp-hub"))
 		if err := copyFile(srcPath, clspHubPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to install clsp-hub: %v\n", err)
 			os.Exit(1)
