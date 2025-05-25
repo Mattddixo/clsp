@@ -10,6 +10,24 @@ import (
 	"strings"
 )
 
+func getWindowsInstallDir() (string, error) {
+	// Try user's local bin directory first
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile == "" {
+		return "", fmt.Errorf("USERPROFILE environment variable not set")
+	}
+
+	// Create a bin directory in the user's AppData\Local folder
+	installDir := filepath.Join(userProfile, "AppData", "Local", "bin")
+
+	// Ensure the directory exists
+	if err := os.MkdirAll(installDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create install directory: %v", err)
+	}
+
+	return installDir, nil
+}
+
 func addToWindowsPath(installDir string) error {
 	// Get current PATH
 	path := os.Getenv("PATH")
@@ -27,9 +45,7 @@ func addToWindowsPath(installDir string) error {
 }
 
 func main() {
-	// Define flags so that if neither --clsp nor --hub is provided, both are installed (default behavior).
-	// If --clsp is provided (and --hub is not), then only clsp is installed.
-	// If --hub is provided (and --clsp is not), then only clsp-hub is installed.
+	// Define flags
 	installClsp := flag.Bool("clsp", false, "Build and install only clsp (if --hub is not provided, both are installed)")
 	installHub := flag.Bool("hub", false, "Build and install only clsp-hub (if --clsp is not provided, both are installed)")
 	flag.Parse()
@@ -37,39 +53,47 @@ func main() {
 	// If neither flag is provided, install both (default behavior).
 	installBoth := !(*installClsp || *installHub)
 
-	// Determine install directory (e.g. /usr/local/bin on Unix, %LOCALAPPDATA%\Programs\clsp on Windows)
+	// Determine install directory
 	var installDir string
+	var err error
 	if runtime.GOOS == "windows" {
-		localAppData := os.Getenv("LOCALAPPDATA")
-		if localAppData == "" {
-			fmt.Fprintln(os.Stderr, "LOCALAPPDATA environment variable not set")
+		installDir, err = getWindowsInstallDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error determining install directory: %v\n", err)
 			os.Exit(1)
 		}
-		installDir = filepath.Join(localAppData, "Programs", "clsp")
 	} else {
 		installDir = "/usr/local/bin"
 	}
 
-	// Ensure install directory exists
-	if err := os.MkdirAll(installDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create install directory %s: %v\n", installDir, err)
+	fmt.Printf("Installing to: %s\n", installDir)
+
+	// Build binaries in a temporary directory first
+	tempDir, err := os.MkdirTemp("", "clsp-install-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create temporary directory: %v\n", err)
 		os.Exit(1)
 	}
+	defer os.RemoveAll(tempDir) // Clean up temp directory when done
 
 	fmt.Println("Building CLSP binaries...")
 
-	// Build clsp (if --clsp is provided or if neither flag is provided (installBoth))
+	// Build clsp
 	if *installClsp || installBoth {
-		cmd := exec.Command("go", "build", "-o", "clsp", "./cmd/clsp")
+		cmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "clsp"), "./cmd/clsp")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to build clsp: %v\n", err)
 			os.Exit(1)
 		}
 	}
 
-	// Build clsp-hub (if --hub is provided or if neither flag is provided (installBoth))
+	// Build clsp-hub
 	if *installHub || installBoth {
-		cmd := exec.Command("go", "build", "-o", "clsp-hub", "./cmd/clsp-hub")
+		cmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "clsp-hub"), "./cmd/clsp-hub")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to build clsp-hub: %v\n", err)
 			os.Exit(1)
@@ -78,15 +102,13 @@ func main() {
 
 	// Determine binary names (append .exe on Windows)
 	clspPath := filepath.Join(installDir, "clsp")
-	if runtime.GOOS == "windows" {
-		clspPath += ".exe"
-	}
 	clspHubPath := filepath.Join(installDir, "clsp-hub")
 	if runtime.GOOS == "windows" {
+		clspPath += ".exe"
 		clspHubPath += ".exe"
 	}
 
-	// Remove old binaries (if any) so that os.Rename works
+	// Remove old binaries if they exist
 	if *installClsp || installBoth {
 		os.Remove(clspPath)
 	}
@@ -94,15 +116,23 @@ func main() {
 		os.Remove(clspHubPath)
 	}
 
-	// Move (rename) the built binaries into the install directory
+	// Copy the built binaries to the install directory
 	if *installClsp || installBoth {
-		if err := os.Rename("clsp", clspPath); err != nil {
+		srcPath := filepath.Join(tempDir, "clsp")
+		if runtime.GOOS == "windows" {
+			srcPath += ".exe"
+		}
+		if err := copyFile(srcPath, clspPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to install clsp: %v\n", err)
 			os.Exit(1)
 		}
 	}
 	if *installHub || installBoth {
-		if err := os.Rename("clsp-hub", clspHubPath); err != nil {
+		srcPath := filepath.Join(tempDir, "clsp-hub")
+		if runtime.GOOS == "windows" {
+			srcPath += ".exe"
+		}
+		if err := copyFile(srcPath, clspHubPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to install clsp-hub: %v\n", err)
 			os.Exit(1)
 		}
@@ -148,4 +178,20 @@ func main() {
 	} else {
 		fmt.Println("\nNo binary installed (--clsp and --hub are both false).")
 	}
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	// Read the source file
+	srcData, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("failed to read source file: %v", err)
+	}
+
+	// Write to the destination file
+	if err := os.WriteFile(dst, srcData, 0755); err != nil {
+		return fmt.Errorf("failed to write destination file: %v", err)
+	}
+
+	return nil
 }
