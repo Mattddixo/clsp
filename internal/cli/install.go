@@ -3,18 +3,19 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+
+	"github.com/mattd/clsp/internal/paths"
 )
 
 // Install performs the initial installation and configuration
 func Install() error {
-	// Create .clsp directory
-	if err := os.MkdirAll(ConfigDir, 0700); err != nil {
+	// Create config directory
+	if err := paths.EnsureConfigDir(); err != nil {
 		return fmt.Errorf("failed to create config directory: %v", err)
 	}
 
 	// Create default config if it doesn't exist
-	configPath := filepath.Join(ConfigDir, "config.json")
+	configPath := paths.GetConfigPath("config.json")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		config := DefaultConfig()
 		if err := SaveConfig(config); err != nil {
@@ -30,7 +31,7 @@ func Install() error {
 
 // IsInstalled checks if CLSP is properly installed
 func IsInstalled() bool {
-	configPath := filepath.Join(ConfigDir, "config.json")
+	configPath := paths.GetConfigPath("config.json")
 	_, err := os.Stat(configPath)
 	return err == nil
 }

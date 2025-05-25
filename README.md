@@ -147,12 +147,25 @@ CLSP uses a hub-based architecture:
 
 ## Configuration
 
-The client configuration is stored in `~/.clsp/config.json` and includes:
+The client configuration is stored in a global location based on your operating system:
+
+- Windows: `%LOCALAPPDATA%\clsp\config.json`
+- Unix-like systems: `~/.config/clsp/config.json`
+
+The configuration includes:
 - Hub URL
 - User ID and display name
 - TLS settings
 - Message expiry duration
 - User aliases
+
+Private keys are stored in a `keys` subdirectory:
+- Windows: `%LOCALAPPDATA%\clsp\keys\`
+- Unix-like systems: `~/.config/clsp/keys\`
+
+The hub server database is stored in:
+- Windows: `%LOCALAPPDATA%\clsp\hub.db`
+- Unix-like systems: `~/.config/clsp/hub.db`
 
 ## Contributing
 

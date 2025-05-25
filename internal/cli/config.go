@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"time"
+
+	"github.com/mattd/clsp/internal/paths"
 )
 
 // Config represents the CLSP configuration
@@ -42,7 +43,7 @@ func DefaultConfig() *Config {
 
 // LoadConfig loads the configuration from file
 func LoadConfig() (*Config, error) {
-	configPath := filepath.Join(ConfigDir, "config.json")
+	configPath := paths.GetConfigPath("config.json")
 
 	// Create default config if it doesn't exist
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -68,7 +69,7 @@ func LoadConfig() (*Config, error) {
 
 // SaveConfig saves the configuration to file
 func SaveConfig(config *Config) error {
-	if err := os.MkdirAll(ConfigDir, 0700); err != nil {
+	if err := paths.EnsureConfigDir(); err != nil {
 		return fmt.Errorf("failed to create config directory: %v", err)
 	}
 
@@ -77,7 +78,7 @@ func SaveConfig(config *Config) error {
 		return fmt.Errorf("failed to marshal config: %v", err)
 	}
 
-	configPath := filepath.Join(ConfigDir, "config.json")
+	configPath := paths.GetConfigPath("config.json")
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write config: %v", err)
 	}

@@ -14,12 +14,11 @@ import (
 	"time"
 
 	"github.com/mattd/clsp/internal/crypto"
+	"github.com/mattd/clsp/internal/paths"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
-	// HubDBPath is the path to the hub's SQLite database
-	HubDBPath = ".clsp/hub.db"
 	// MessageExpiry is the duration after which undelivered messages are deleted
 	MessageExpiry = 30 * 24 * time.Hour // 30 days
 )
@@ -67,6 +66,16 @@ type Message struct {
 
 // NewServer creates a new hub server with default configuration
 func NewServer(dbPath string) (*Server, error) {
+	// If no dbPath is provided, use the default global path
+	if dbPath == "" {
+		dbPath = paths.HubDBPath
+	}
+
+	// Ensure the directory exists
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
+		return nil, fmt.Errorf("failed to create database directory: %v", err)
+	}
+
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
@@ -95,11 +104,6 @@ func NewServer(dbPath string) (*Server, error) {
 
 // Start initializes and starts the hub server
 func (s *Server) Start() error {
-	// Create .clsp directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(HubDBPath), 0700); err != nil {
-		return fmt.Errorf("failed to create hub directory: %v", err)
-	}
-
 	// Start cleanup goroutine
 	go s.cleanupLoop()
 

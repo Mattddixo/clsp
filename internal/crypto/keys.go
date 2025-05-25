@@ -7,12 +7,12 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
-	"path/filepath"
+
+	"github.com/mattd/clsp/internal/paths"
 )
 
 const (
 	KeySize = 2048
-	KeyDir  = ".clsp"
 )
 
 // GenerateKeyPair generates a new RSA key pair
@@ -51,7 +51,7 @@ func SavePrivateKey(key *rsa.PrivateKey, path string) error {
 
 // LoadPrivateKey loads the private key from disk
 func LoadPrivateKey() (*rsa.PrivateKey, error) {
-	privateKeyPEM, err := os.ReadFile(filepath.Join(KeyDir, "private.pem"))
+	privateKeyPEM, err := os.ReadFile(paths.GetKeyPath("private.pem"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %v", err)
 	}
@@ -71,7 +71,7 @@ func LoadPrivateKey() (*rsa.PrivateKey, error) {
 
 // LoadPublicKey loads the public key from disk
 func LoadPublicKey() (*rsa.PublicKey, error) {
-	publicKeyPEM, err := os.ReadFile(filepath.Join(KeyDir, "public.pem"))
+	publicKeyPEM, err := os.ReadFile(paths.GetKeyPath("public.pem"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read public key: %v", err)
 	}
