@@ -10,10 +10,9 @@ import (
 	"github.com/mattd/clsp/internal/paths"
 )
 
-// Config represents the CLSP configuration
+// Config represents the client configuration
 type Config struct {
 	HubURL        string            `json:"hub_url"`
-	HubTimeout    time.Duration     `json:"hub_timeout"`
 	HubRetryCount int               `json:"hub_retry_count"`
 	HubRetryDelay time.Duration     `json:"hub_retry_delay"`
 	UseTLS        bool              `json:"use_tls"`
@@ -29,7 +28,6 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		HubURL:        "http://localhost:8080",
-		HubTimeout:    10 * time.Second,
 		HubRetryCount: 3,
 		HubRetryDelay: 1 * time.Second,
 		UseTLS:        false,

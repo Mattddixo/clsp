@@ -218,21 +218,70 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set initial user state
-	user.LastSeen = time.Now()
-	user.Online = true
+	// Validate required fields
+	if user.ID == "" || user.DisplayName == "" || user.PublicKey == "" {
+		http.Error(w, "Missing required fields", http.StatusBadRequest)
+		return
+	}
 
-	// Store user
-	_, err := s.db.Exec(
-		"INSERT OR REPLACE INTO users (id, display_name, public_key, last_seen, online) VALUES (?, ?, ?, ?, ?)",
-		user.ID,
-		user.DisplayName,
-		user.PublicKey,
-		user.LastSeen.Unix(),
-		user.Online,
-	)
+	// Check if display name is taken by another user
+	var existingUserID string
+	err := s.db.QueryRow("SELECT id FROM users WHERE display_name = ? AND id != ?", user.DisplayName, user.ID).Scan(&existingUserID)
+	if err != nil && err != sql.ErrNoRows {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	if existingUserID != "" {
+		http.Error(w, "Display name already taken", http.StatusConflict)
+		return
+	}
+
+	// Begin transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	// Check if user exists
+	var exists bool
+	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)", user.ID).Scan(&exists)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	if exists {
+		// Update existing user
+		_, err = tx.Exec(
+			"UPDATE users SET display_name = ?, public_key = ?, last_seen = ?, online = ? WHERE id = ?",
+			user.DisplayName,
+			user.PublicKey,
+			time.Now().Unix(),
+			true,
+			user.ID,
+		)
+	} else {
+		// Insert new user
+		_, err = tx.Exec(
+			"INSERT INTO users (id, display_name, public_key, last_seen, online) VALUES (?, ?, ?, ?, ?)",
+			user.ID,
+			user.DisplayName,
+			user.PublicKey,
+			time.Now().Unix(),
+			true,
+		)
+	}
+
 	if err != nil {
 		http.Error(w, "Failed to store user", http.StatusInternalServerError)
+		return
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
@@ -503,4 +552,25 @@ func (s *Server) handleCheckUsername(w http.ResponseWriter, r *http.Request) {
 // SetPort sets the port number for the server
 func (s *Server) SetPort(port int) {
 	s.port = port
+}
+
+// SetTimeout sets the hub timeout
+func (s *Server) SetTimeout(timeout time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.HubTimeout = timeout
+}
+
+// SetMessageExpiry sets the message expiry duration
+func (s *Server) SetMessageExpiry(expiry time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.MessageExpiry = expiry
+}
+
+// SetRateLimit sets the rate limit (messages per minute)
+func (s *Server) SetRateLimit(limit int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.RateLimit = limit
 }

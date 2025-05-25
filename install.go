@@ -10,38 +10,104 @@ import (
 	"strings"
 )
 
-func getWindowsInstallDir() (string, error) {
-	// Try user's local bin directory first
-	userProfile := os.Getenv("USERPROFILE")
-	if userProfile == "" {
-		return "", fmt.Errorf("USERPROFILE environment variable not set")
+func getInstallDir() (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		// Use LOCALAPPDATA\Programs\clsp as the installation directory
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData == "" {
+			return "", fmt.Errorf("LOCALAPPDATA environment variable not set")
+		}
+		installDir := filepath.Join(localAppData, "Programs", "clsp")
+		if err := os.MkdirAll(installDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create install directory: %v", err)
+		}
+		return installDir, nil
+	case "darwin", "linux":
+		// Use /usr/local/bin for Unix-like systems
+		installDir := "/usr/local/bin"
+		// Check if we have write permissions
+		if err := os.MkdirAll(installDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to access %s: %v\nPlease run with sudo for system-wide installation", installDir, err)
+		}
+		return installDir, nil
+	default:
+		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
-
-	// Create a bin directory in the user's AppData\Local folder
-	installDir := filepath.Join(userProfile, "AppData", "Local", "bin")
-
-	// Ensure the directory exists
-	if err := os.MkdirAll(installDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create install directory: %v", err)
-	}
-
-	return installDir, nil
 }
 
-func addToWindowsPath(installDir string) error {
-	// Get current PATH
-	path := os.Getenv("PATH")
-	if strings.Contains(path, installDir) {
-		return nil // Already in PATH
+func updatePath(installDir string) error {
+	switch runtime.GOOS {
+	case "windows":
+		// Get current PATH from registry
+		cmd := exec.Command("powershell", "-Command", "[Environment]::GetEnvironmentVariable('Path', 'User')")
+		output, err := cmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to get current PATH: %v", err)
+		}
+		currentPath := strings.TrimSpace(string(output))
+
+		// Check if directory is already in PATH
+		if strings.Contains(currentPath, installDir) {
+			return nil // Already in PATH
+		}
+
+		// Add to PATH using PowerShell and update current session
+		psCmd := fmt.Sprintf(`
+			$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+			$newPath = $userPath + ';%s'
+			[Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+			$env:Path = $newPath
+		`, installDir)
+		cmd = exec.Command("powershell", "-Command", psCmd)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to update PATH: %v", err)
+		}
+
+		// Verify the update
+		cmd = exec.Command("powershell", "-Command", "$env:Path")
+		output, err = cmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to verify PATH update: %v", err)
+		}
+		newPath := strings.TrimSpace(string(output))
+		if !strings.Contains(newPath, installDir) {
+			return fmt.Errorf("PATH update verification failed")
+		}
+		return nil
+
+	case "darwin", "linux":
+		// On Unix-like systems, /usr/local/bin is typically already in PATH
+		// Just verify it exists and is writable
+		if err := os.MkdirAll(installDir, 0755); err != nil {
+			return fmt.Errorf("failed to access %s: %v\nPlease run with sudo for system-wide installation", installDir, err)
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+}
+
+func verifyInstallation(installDir string) bool {
+	binaryName := "clsp"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(installDir, binaryName)
+
+	// Check if binary exists
+	if _, err := os.Stat(binaryPath); err != nil {
+		return false
 	}
 
-	// Add to PATH using setx
-	cmd := exec.Command("setx", "PATH", path+";"+installDir)
+	// Try to run the binary
+	cmd := exec.Command(binaryPath, "--version")
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to update PATH: %v", err)
+		return false
 	}
 
-	return nil
+	return true
 }
 
 func main() {
@@ -50,20 +116,14 @@ func main() {
 	installHub := flag.Bool("hub", false, "Build and install only clsp-hub (if --clsp is not provided, both are installed)")
 	flag.Parse()
 
-	// If neither flag is provided, install both (default behavior).
+	// If neither flag is provided, install both (default behavior)
 	installBoth := !(*installClsp || *installHub)
 
 	// Determine install directory
-	var installDir string
-	var err error
-	if runtime.GOOS == "windows" {
-		installDir, err = getWindowsInstallDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error determining install directory: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		installDir = "/usr/local/bin"
+	installDir, err := getInstallDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error determining install directory: %v\n", err)
+		os.Exit(1)
 	}
 
 	fmt.Printf("Installing to: %s\n", installDir)
@@ -74,7 +134,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to create temporary directory: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tempDir) // Clean up temp directory when done
+	defer os.RemoveAll(tempDir)
 
 	fmt.Println("Building CLSP binaries...")
 
@@ -110,29 +170,25 @@ func main() {
 		}
 	}
 
-	// Determine binary names for final installation
-	clspPath := filepath.Join(installDir, getBinaryName("clsp"))
-	clspHubPath := filepath.Join(installDir, getBinaryName("clsp-hub"))
-
 	// Remove old binaries if they exist
 	if *installClsp || installBoth {
-		os.Remove(clspPath)
+		os.RemoveAll(filepath.Join(installDir, getBinaryName("clsp")))
 	}
 	if *installHub || installBoth {
-		os.Remove(clspHubPath)
+		os.RemoveAll(filepath.Join(installDir, getBinaryName("clsp-hub")))
 	}
 
 	// Copy the built binaries to the install directory
 	if *installClsp || installBoth {
 		srcPath := filepath.Join(tempDir, getBinaryName("clsp"))
-		if err := copyFile(srcPath, clspPath); err != nil {
+		if err := copyFile(srcPath, filepath.Join(installDir, getBinaryName("clsp"))); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to install clsp: %v\n", err)
 			os.Exit(1)
 		}
 	}
 	if *installHub || installBoth {
 		srcPath := filepath.Join(tempDir, getBinaryName("clsp-hub"))
-		if err := copyFile(srcPath, clspHubPath); err != nil {
+		if err := copyFile(srcPath, filepath.Join(installDir, getBinaryName("clsp-hub"))); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to install clsp-hub: %v\n", err)
 			os.Exit(1)
 		}
@@ -141,31 +197,47 @@ func main() {
 	// Set executable permissions (on Unix-like systems)
 	if runtime.GOOS != "windows" {
 		if *installClsp || installBoth {
-			os.Chmod(clspPath, 0755)
+			os.Chmod(filepath.Join(installDir, "clsp"), 0755)
 		}
 		if *installHub || installBoth {
-			os.Chmod(clspHubPath, 0755)
+			os.Chmod(filepath.Join(installDir, "clsp-hub"), 0755)
 		}
 	}
 
 	fmt.Printf("\nCLSP binaries installed successfully to %s\n", installDir)
 
-	// Handle Windows PATH
-	if runtime.GOOS == "windows" {
-		if err := addToWindowsPath(installDir); err != nil {
-			fmt.Printf("\nWarning: Failed to update PATH: %v\n", err)
-			fmt.Printf("\nTo use the 'clsp' command, you need to add this directory to your PATH:\n")
-			fmt.Printf("  %s\n", installDir)
-			fmt.Printf("\nYou can do this by:\n")
-			fmt.Printf("1. Opening System Properties (Win + Pause/Break)\n")
-			fmt.Printf("2. Click 'Advanced system settings'\n")
-			fmt.Printf("3. Click 'Environment Variables'\n")
-			fmt.Printf("4. Under 'User variables', find and select 'Path'\n")
-			fmt.Printf("5. Click 'Edit' and add the above directory\n")
-			fmt.Printf("6. Click 'OK' on all windows\n")
-			fmt.Printf("7. Restart your terminal\n")
+	// Update PATH
+	if err := updatePath(installDir); err != nil {
+		fmt.Printf("\nWarning: Failed to update PATH: %v\n", err)
+		fmt.Printf("\nTo use the commands, you need to add this directory to your PATH:\n")
+		fmt.Printf("  %s\n", installDir)
+
+		if runtime.GOOS == "windows" {
+			fmt.Printf("\nOn Windows, run this command in PowerShell:\n")
+			fmt.Printf("  $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User')\n")
 		} else {
-			fmt.Printf("\nPATH updated successfully. Please restart your terminal for the changes to take effect.\n")
+			fmt.Printf("\nOn Unix-like systems, add this line to your shell's rc file (e.g., ~/.bashrc, ~/.zshrc):\n")
+			fmt.Printf("  export PATH=\"$PATH:%s\"\n", installDir)
+		}
+	} else {
+		fmt.Printf("\nPATH updated successfully.\n")
+
+		// Verify installation
+		if verifyInstallation(installDir) {
+			fmt.Printf("Installation verified successfully.\n")
+			if runtime.GOOS == "windows" {
+				fmt.Printf("\nThe command should be available in this PowerShell session.\n")
+				fmt.Printf("If not, run: $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User')\n")
+			} else {
+				fmt.Printf("\nPlease restart your terminal for the changes to take effect.\n")
+			}
+			fmt.Printf("Then try: clsp --version\n")
+		} else {
+			fmt.Printf("\nWarning: Installation verification failed. Please try running:\n")
+			fmt.Printf("  %s%sclsp%s --version\n",
+				installDir,
+				string(filepath.Separator),
+				map[string]string{"windows": ".exe"}[runtime.GOOS])
 		}
 	}
 

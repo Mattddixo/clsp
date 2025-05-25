@@ -94,6 +94,23 @@ func CheckUsername(hubURL, username string) (bool, error) {
 
 // InitUser initializes a new user identity interactively
 func InitUser() error {
+	// Check if user is already initialized
+	config, err := LoadConfig()
+	if err == nil && config.UserID != "" {
+		fmt.Print("A user is already initialized. Do you want to reinitialize? (y/N): ")
+		var response string
+		fmt.Scanln(&response)
+		if response != "y" && response != "Y" {
+			return fmt.Errorf("user initialization cancelled")
+		}
+
+		// Clean up old configuration
+		fmt.Println("Cleaning up old configuration...")
+		if err := cleanupOldConfig(); err != nil {
+			return fmt.Errorf("failed to clean up old configuration: %v", err)
+		}
+	}
+
 	// Prompt for hub URL
 	defaultHub := "http://localhost:8080"
 	fmt.Printf("Hub URL [%s]: ", defaultHub)
@@ -162,7 +179,7 @@ func InitUser() error {
 	userID := uuid.New().String()
 
 	// Save local configuration
-	config := &Config{
+	config = &Config{
 		HubURL:       hubURL,
 		UserID:       userID,
 		DisplayName:  displayName,
@@ -184,7 +201,7 @@ func InitUser() error {
 	reqBody, err := json.Marshal(map[string]string{
 		"user_id":      userID,
 		"display_name": displayName,
-		"public_key":   string(publicKeyPEM), // Convert []byte to string
+		"public_key":   string(publicKeyPEM),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %v", err)
@@ -199,7 +216,7 @@ func InitUser() error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated { // Changed from StatusOK to StatusCreated to match server
+	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("hub returned status %d", resp.StatusCode)
 	}
 
@@ -211,17 +228,36 @@ func InitUser() error {
 	return nil
 }
 
-// SendMessage sends an encrypted message to a recipient
-func SendMessage(recipient, message, attachmentPath string) error {
-	// Load user info
-	userInfo, err := os.ReadFile(paths.GetConfigPath("user.json"))
-	if err != nil {
-		return fmt.Errorf("failed to read user info: %v", err)
+// cleanupOldConfig removes old configuration files and keys
+func cleanupOldConfig() error {
+	// Remove old private key
+	if err := os.Remove(paths.GetKeyPath("private.key")); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove old private key: %v", err)
 	}
 
-	var user User
-	if err := json.Unmarshal(userInfo, &user); err != nil {
-		return fmt.Errorf("failed to unmarshal user info: %v", err)
+	// Remove old config files
+	configFiles := []string{"config.json", "user.json"}
+	for _, file := range configFiles {
+		if err := os.Remove(paths.GetConfigPath(file)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove old %s: %v", file, err)
+		}
+	}
+
+	return nil
+}
+
+// SendMessage sends an encrypted message to a recipient
+func SendMessage(recipient, message, attachmentPath string) error {
+	// Load config
+	config, err := LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %v", err)
+	}
+
+	// Get hub configuration to get timeout
+	hubInfo, err := CheckHubHealth(config.HubURL)
+	if err != nil {
+		return fmt.Errorf("failed to get hub configuration: %v", err)
 	}
 
 	// Load private key
@@ -231,7 +267,10 @@ func SendMessage(recipient, message, attachmentPath string) error {
 	}
 
 	// Get recipient's public key
-	resp, err := http.Get(HubURL + "/users")
+	client := &http.Client{
+		Timeout: hubInfo.Config.HubTimeout,
+	}
+	resp, err := client.Get(config.HubURL + "/users")
 	if err != nil {
 		return fmt.Errorf("failed to get users: %v", err)
 	}
@@ -284,7 +323,7 @@ func SendMessage(recipient, message, attachmentPath string) error {
 
 	// Set message metadata
 	msg.ID = uuid.New().String()
-	msg.Sender = user.ID
+	msg.Sender = config.UserID
 	msg.Recipient = recipientUser.ID
 	msg.Timestamp = time.Now().Unix()
 	msg.Status = "sent"
@@ -295,7 +334,7 @@ func SendMessage(recipient, message, attachmentPath string) error {
 		return fmt.Errorf("failed to marshal message: %v", err)
 	}
 
-	resp, err = http.Post(HubURL+"/message", "application/json", bytes.NewBuffer(reqBody))
+	resp, err = client.Post(config.HubURL+"/message", "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return fmt.Errorf("failed to send message: %v", err)
 	}
@@ -312,26 +351,21 @@ func SendMessage(recipient, message, attachmentPath string) error {
 
 // ListMessages lists received messages with optional filtering
 func ListMessages(unreadOnly bool, limit int, search string) error {
-	// Load user info
-	userInfo, err := os.ReadFile(paths.GetConfigPath("user.json"))
-	if err != nil {
-		return fmt.Errorf("failed to read user info: %v", err)
-	}
-
-	var user User
-	if err := json.Unmarshal(userInfo, &user); err != nil {
-		return fmt.Errorf("failed to unmarshal user info: %v", err)
-	}
-
 	// Load config
 	config, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %v", err)
 	}
 
+	// Get hub configuration to get timeout
+	hubInfo, err := CheckHubHealth(config.HubURL)
+	if err != nil {
+		return fmt.Errorf("failed to get hub configuration: %v", err)
+	}
+
 	// Build query parameters
 	params := url.Values{}
-	params.Set("user_id", user.ID)
+	params.Set("user_id", config.UserID)
 	if unreadOnly {
 		params.Set("unread", "true")
 	}
@@ -344,7 +378,7 @@ func ListMessages(unreadOnly bool, limit int, search string) error {
 
 	// Get messages from hub
 	client := &http.Client{
-		Timeout: config.HubTimeout,
+		Timeout: hubInfo.Config.HubTimeout,
 	}
 
 	resp, err := client.Get(fmt.Sprintf("%s/messages?%s", config.HubURL, params.Encode()))
@@ -403,6 +437,12 @@ func ListUsers(onlineOnly bool, search string) error {
 		return fmt.Errorf("failed to load config: %v", err)
 	}
 
+	// Get hub configuration to get timeout
+	hubInfo, err := CheckHubHealth(config.HubURL)
+	if err != nil {
+		return fmt.Errorf("failed to get hub configuration: %v", err)
+	}
+
 	// Build query parameters
 	params := url.Values{}
 	if onlineOnly {
@@ -414,7 +454,7 @@ func ListUsers(onlineOnly bool, search string) error {
 
 	// Get users from hub
 	client := &http.Client{
-		Timeout: config.HubTimeout,
+		Timeout: hubInfo.Config.HubTimeout,
 	}
 
 	resp, err := client.Get(fmt.Sprintf("%s/users?%s", config.HubURL, params.Encode()))
