@@ -13,13 +13,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mattd/clsp/internal/crypto"
+	"github.com/mattd/clsp/internal/paths"
 )
 
 const (
 	// HubURL is the default URL for the hub server
 	HubURL = "http://localhost:8080"
-	// ConfigDir is the directory for storing user configuration
-	ConfigDir = ".clsp"
 )
 
 // User represents a CLSP user
@@ -176,7 +175,7 @@ func InitUser() error {
 	}
 
 	// Save private key
-	if err := crypto.SavePrivateKey(privateKey, filepath.Join(ConfigDir, "private.key")); err != nil {
+	if err := crypto.SavePrivateKey(privateKey, paths.GetKeyPath("private.key")); err != nil {
 		return fmt.Errorf("failed to save private key: %v", err)
 	}
 
@@ -215,7 +214,7 @@ func InitUser() error {
 // SendMessage sends an encrypted message to a recipient
 func SendMessage(recipient, message, attachmentPath string) error {
 	// Load user info
-	userInfo, err := os.ReadFile(filepath.Join(ConfigDir, "user.json"))
+	userInfo, err := os.ReadFile(paths.GetConfigPath("user.json"))
 	if err != nil {
 		return fmt.Errorf("failed to read user info: %v", err)
 	}
@@ -226,7 +225,7 @@ func SendMessage(recipient, message, attachmentPath string) error {
 	}
 
 	// Load private key
-	privateKey, err := crypto.LoadPrivateKey()
+	privateKey, err := crypto.LoadPrivateKey(paths.GetKeyPath("private.key"))
 	if err != nil {
 		return fmt.Errorf("failed to load private key: %v", err)
 	}
@@ -314,7 +313,7 @@ func SendMessage(recipient, message, attachmentPath string) error {
 // ListMessages lists received messages with optional filtering
 func ListMessages(unreadOnly bool, limit int, search string) error {
 	// Load user info
-	userInfo, err := os.ReadFile(filepath.Join(ConfigDir, "user.json"))
+	userInfo, err := os.ReadFile(paths.GetConfigPath("user.json"))
 	if err != nil {
 		return fmt.Errorf("failed to read user info: %v", err)
 	}
@@ -360,7 +359,7 @@ func ListMessages(unreadOnly bool, limit int, search string) error {
 	}
 
 	// Load private key
-	privateKey, err := crypto.LoadPrivateKey()
+	privateKey, err := crypto.LoadPrivateKey(paths.GetKeyPath("private.key"))
 	if err != nil {
 		return fmt.Errorf("failed to load private key: %v", err)
 	}

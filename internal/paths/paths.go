@@ -29,23 +29,17 @@ func init() {
 	var err error
 	HomeDir, err = os.UserHomeDir()
 	if err != nil {
-		panic(fmt.Sprintf("failed to get user home directory: %v", err))
+		panic(fmt.Sprintf("failed to get user home dir: %v", err))
 	}
-
-	// Set up paths based on OS
 	if runtime.GOOS == "windows" {
-		// On Windows, use %LOCALAPPDATA%\clsp
 		localAppData := os.Getenv("LOCALAPPDATA")
 		if localAppData == "" {
 			panic("LOCALAPPDATA environment variable not set")
 		}
 		ConfigDir = filepath.Join(localAppData, AppName)
 	} else {
-		// On Unix-like systems, use ~/.config/clsp
 		ConfigDir = filepath.Join(HomeDir, ".config", AppName)
 	}
-
-	// Set up subdirectories
 	KeyDir = filepath.Join(ConfigDir, "keys")
 	HubDBPath = filepath.Join(ConfigDir, "hub.db")
 }

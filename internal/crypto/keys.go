@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/mattd/clsp/internal/paths"
 )
@@ -31,42 +32,42 @@ func GenerateKeyPair() (privateKey *rsa.PrivateKey, publicKeyPEM []byte, err err
 }
 
 // SavePrivateKey saves a private key to a file
-func SavePrivateKey(key *rsa.PrivateKey, path string) error {
-	privateKeyPEM := &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
+func SavePrivateKey(privateKey *rsa.PrivateKey, path string) error {
+	// Ensure the key directory exists
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return fmt.Errorf("failed to create key directory: %v", err)
 	}
-
-	data := pem.EncodeToMemory(privateKeyPEM)
-	if data == nil {
-		return fmt.Errorf("failed to encode private key")
-	}
-
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
 		return fmt.Errorf("failed to write private key: %v", err)
 	}
-
+	defer outFile.Close()
+	privBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+	pemBlock := &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privBytes,
+	}
+	if err := pem.Encode(outFile, pemBlock); err != nil {
+		return fmt.Errorf("failed to encode private key")
+	}
 	return nil
 }
 
 // LoadPrivateKey loads the private key from disk
-func LoadPrivateKey() (*rsa.PrivateKey, error) {
-	privateKeyPEM, err := os.ReadFile(paths.GetKeyPath("private.pem"))
+func LoadPrivateKey(path string) (*rsa.PrivateKey, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %v", err)
 	}
-
-	block, _ := pem.Decode(privateKeyPEM)
+	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode private key PEM")
 	}
-
-	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	priv, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse private key: %v", err)
 	}
-
-	return privateKey, nil
+	return priv, nil
 }
 
 // LoadPublicKey loads the public key from disk
