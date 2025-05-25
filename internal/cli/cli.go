@@ -198,11 +198,12 @@ func InitUser() error {
 
 	// Register with hub
 	fmt.Println("Registering with hub...")
-	reqBody, err := json.Marshal(map[string]string{
-		"user_id":      userID,
-		"display_name": displayName,
-		"public_key":   string(publicKeyPEM),
-	})
+	user := &User{
+		ID:          userID,
+		DisplayName: displayName,
+		PublicKey:   string(publicKeyPEM),
+	}
+	reqBody, err := json.Marshal(user)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %v", err)
 	}
@@ -217,7 +218,8 @@ func InitUser() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("hub returned status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("hub returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	fmt.Println("Registration successful!")
