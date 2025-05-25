@@ -28,7 +28,7 @@ func doInit(dbPath string) {
 
 func main() {
 	port := flag.Int("port", 8080, "Port to listen on")
-	dbPath := flag.String("db", ".clsp/hub.db", "Path to database file")
+	dbPath := flag.String("db", "", "Path to database file (default: global config location)")
 	flag.Parse()
 
 	if len(flag.Args()) > 0 && flag.Args()[0] == "init" {
